@@ -31,5 +31,5 @@ def lambda_handler(event, context):
     else:
         return {
             'statusCode': 404,
-            'body': 'Short ID not found'
+            'body': 'La URL corta que usted ha introducido no se ha encontrado.'
         }

@@ -13,7 +13,7 @@ def generate_short_id():
 def lambda_handler(event, context):
     # Get the long URL from the user
     long_url = event['long_url']
-    print("Your URL is: " + long_url)
+    #print("Your URL is: " + long_url)
     
     # Check if the long URL already exists in DynamoDB
     table = dynamodb.Table(table_name)
@@ -22,7 +22,7 @@ def lambda_handler(event, context):
     if response['Items']:
         # If the long URL already exists, return the existing short ID
         short_id = response['Items'][0]['shortid']
-        message = f"The long URL you are trying to create is already in our database. This is your short URL: {base_url}{short_id}"
+        message = f"La URL que larga que ha pegado ya existe en Nuestra DB. Esta es su URL corta: {base_url}{short_id}"
     else:
         while True:
             # Generate a random short ID
@@ -35,7 +35,7 @@ def lambda_handler(event, context):
                 table.put_item(Item={'shortid': short_id, 'longurl': long_url})
                 break
         
-        message = f"This is your short URL: {base_url}{short_id}"
+        message = f"Esta es su URL corta: {base_url}{short_id}"
     
     response = {
         'statusCode': 200,

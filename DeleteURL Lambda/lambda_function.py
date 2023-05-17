@@ -16,7 +16,7 @@ def lambda_handler(event, context):
     if 'Item' not in response:
         return {
             'statusCode': 404,
-            'body': 'Short ID not found'
+            'body': 'La URL corta que usted ha introducido no se ha encontrado.'
         }
     
     # Delete the item from DynamoDB
@@ -24,5 +24,5 @@ def lambda_handler(event, context):
     
     return {
         'statusCode': 200,
-        'body': 'Item deleted successfully'
+        'body': 'La URL se ha eliminado correctamente de nuestro sistema.'
     }
