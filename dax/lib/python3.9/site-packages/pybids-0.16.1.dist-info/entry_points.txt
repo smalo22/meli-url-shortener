@@ -1,0 +1,2 @@
+[console_scripts]
+pybids = bids.cli:cli

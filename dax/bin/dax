@@ -1,0 +1,254 @@
+#!/Users/smalo/my_lambda_function/venv/bin/python3.9
+# -*- coding: utf-8 -*-
+
+"""
+Main DAX entry point
+"""
+
+import traceback
+import sys
+import os
+
+import dax
+from dax import dax_tools_utils as dax_tools
+from dax import dax_manager
+from dax import validate
+
+
+__author__ = "Benjamin Yvernault"
+__description__ = "Main python executable for dax."
+
+
+def strip_leading_and_trailing_spaces(list_arg):
+    if list_arg is None:
+        return None
+    return ','.join(map(lambda x: x.strip(), list_arg.split(',')))
+
+
+def enable_stdout():
+    import logging
+    logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+
+
+def parse_args():
+    """Method to parse arguments based on ArgumentParser.
+
+    :return: parser object parsed
+    """
+    from argparse import ArgumentParser
+    parser = ArgumentParser(prog='dax', description=__description__)
+    dax_parser = parser.add_subparsers(help='dax commands', dest='command')
+
+    # Set a parser for each command:
+
+    # build:
+    build_desc = "Builds assessors (create assessors/create inputs)."
+    build_parser = dax_parser.add_parser('build', help=build_desc)
+    build_parser.add_argument(dest='settings_path', help='Settings Path')
+    build_parser.add_argument(
+        '--logfile', dest='logfile', help='Logs file path if needed.')
+    _help = 'Project ID from XNAT to run dax build on (only one project).'
+    build_parser.add_argument('--project', dest='project', help=_help)
+    _help = 'list of sessions (labels) from XNAT to build'
+    build_parser.add_argument('--sessions', dest='sessions', help=_help)
+    build_parser.add_argument('--nodebug', dest='debug', action='store_false',
+                              help='Avoid printing DEBUG information.')
+    build_parser.add_argument(
+        '--mod', dest='mod_delta', help='build if modified within this window')
+    build_parser.add_argument(
+        '--startsess', dest='start_sess', help='Skip ahead to session')
+
+    # launch:
+    launch_desc = "Launch all tasks that need to run"
+    launch_parser = dax_parser.add_parser('launch', help=launch_desc)
+    launch_parser.add_argument(dest='settings_path', help='Settings Path')
+    launch_parser.add_argument(
+        '--logfile', dest='logfile', help='Logs file path if needed')
+    _help = 'XNAT Project ID to launch (only one project)'
+    launch_parser.add_argument('--project', dest='project', help=_help)
+    _help = 'list of XNAT sessions to launch'
+    launch_parser.add_argument('--sessions', dest='sessions', help=_help)
+    _help = 'Only write job files without launching them.'
+    launch_parser.add_argument('--pbsfolder', dest='pbsfolder', help=_help)
+    _help = 'Run the jobs locally on your computer in serial.'
+    launch_parser.add_argument(
+        '--no_qsub', dest='no_qsub', action='store_true', help=_help)
+
+    # update:
+    update_desc = "Updates tasks status for open tasks"
+    update_parser = dax_parser.add_parser('update', help=update_desc)
+    update_parser.add_argument(dest='settings_path', help='Settings Path')
+    update_parser.add_argument('--logfile', dest='logfile', help='Log file')
+    _help = 'Project ID from XNAT to update (only one project).'
+    update_parser.add_argument('--project', dest='project', help=_help)
+    _help = 'list of XNAT sessions to update'
+    update_parser.add_argument('--sessions', dest='sessions', help=_help)
+    update_parser.add_argument(
+        '--nodebug',
+        dest='debug',
+        action='store_false',
+        help='Avoid printing DEBUG information.')
+
+    # upload:
+    upload_desc = """Upload completed tasks back to XNAT from the queue"""
+    upload_parser = dax_parser.add_parser('upload', help=upload_desc)
+    upload_parser.add_argument(
+        dest='settings_path',
+        help='Settings Path',
+        nargs='?',
+        default='')
+    upload_parser.add_argument(
+        '-n',
+        dest='max_threads',
+        help='Max Upload Threads',
+        type=int,
+        default=1,
+        choices=range(1, 10))
+    upload_parser.add_argument(
+        '--host', dest='host', help='XNAT Host. Default: $XNAT_HOST')
+    upload_parser.add_argument(
+        '-u', '--username', dest='username', help='Username for XNAT')
+    upload_parser.add_argument(
+        '--pwd', dest='password', help="Password for XNAT.")
+    _help = 'Suffix for the flagfile for dax_upload (Use this \
+option if you use different XNAT_HOST).'
+    upload_parser.add_argument(
+        '-s', '--suffix', dest='suffix', default="", help=_help)
+    _help = 'List of projects to upload to XNAT from the queue'
+    upload_parser.add_argument('-p', '--projects', dest='projects', help=_help)
+    _help = 'File describing each XNAT host and projects to upload'
+    upload_parser.add_argument(
+        '-f', '--uploadFileSettings', dest='upload_settings', help=_help)
+    _help = 'Email address to inform you about the warnings and errors.'
+    upload_parser.add_argument(
+        '-e', '--email', dest='emailaddress', help=_help)
+    upload_parser.add_argument(
+        '-l', '--logfile', dest='logfile', help='Logs file path')
+    upload_parser.add_argument(
+        '--nodebug',
+        dest='debug',
+        action='store_false',
+        help='Avoid printing DEBUG information.')
+    upload_parser.add_argument(
+        '--nolock',
+        dest='uselocking',
+        action='store_false',
+        help='Disable use of locking flag file.')
+    upload_parser.add_argument(
+        '--resdir',
+        dest='resdir',
+        default=dax_tools.default_resdir(),
+        help='Results Directory, defaults to /scratch/USER/Spider_Upload_Dir')
+
+    # manager:
+    manager_desc = 'Extracts settings from REDCap, then \
+runs build, launch, update and upload.'
+    dax_parser.add_parser('manager', help=manager_desc)
+
+    # setup:
+    setup_desc = 'Set up dax on your computer'
+    dax_parser.add_parser('setup', help=setup_desc)
+
+    # undo:
+    undo_desc = 'Undo processing, reset the assessor to NEED_INPUTS'
+    undo_parser = dax_parser.add_parser('undo', help=undo_desc)
+    undo_parser.add_argument(dest='assessor', help='Assessor Label to Undo')
+
+    # validate:
+    validate_desc = 'Validate file'
+    validate_parser = dax_parser.add_parser('validate', help=validate_desc)
+    validate_parser.add_argument(
+        dest='file', help='File to be validated')
+
+    # version:
+    version_desc = 'Print dax version.'
+    dax_parser.add_parser('version', help=version_desc)
+
+    if len(sys.argv) == 1:
+        parser.print_help(sys.stderr)
+        sys.exit(1)
+
+    return parser.parse_args()
+
+
+if __name__ == '__main__':
+    args = parse_args()
+    if args.command in ['build', 'launch', 'update']:
+        args.sessions = strip_leading_and_trailing_spaces(args.sessions)
+
+    if args.command == 'build':
+        try:
+            dax.bin.build(
+                args.settings_path, args.logfile, args.debug, args.project,
+                args.sessions, args.mod_delta, None, args.start_sess)
+        except Exception:
+            _err = traceback.format_exc()
+            print('ERROR:build failed:', _err)
+
+    elif args.command == 'launch':
+        dax.bin.launch_jobs(args.settings_path, args.logfile, True,
+                            args.project, args.sessions, False,
+                            args.pbsfolder, args.no_qsub)
+
+    elif args.command == 'update':
+        dax.bin.update_tasks(
+            args.settings_path, args.logfile, args.debug, args.project,
+            args.sessions)
+
+    elif args.command == 'upload':
+        if args.settings_path:
+            # TODO: allow flag to use settings dir which will upload all the 
+            # settings files in the directory
+            enable_stdout()
+            dax.bin.upload(args.settings_path, max_threads=args.max_threads)
+        else:
+            dax_tools.upload_tasks(
+                args.logfile, args.debug, args.upload_settings, args.host,
+                args.username, args.password, args.projects, args.suffix,
+                args.emailaddress, args.uselocking, args.resdir)
+
+    elif args.command == 'setup':
+        dax_tools.setup_dax_package()
+
+    elif args.command == 'manager':
+        API_URL = os.environ['API_URL']
+        API_KEY_P = os.environ['API_KEY_DAX_PROJECTS']
+        API_KEY_I = os.environ['API_KEY_DAX_INSTANCES']
+
+        # Make and run our dax manager
+        manager = dax_manager.DaxManager(API_URL, API_KEY_I, API_KEY_P)
+
+        if manager.is_enabled_instance():
+            # Delete any left over lock files
+            manager.clean_lockfiles()
+
+            # And run it
+            errors = manager.run()
+
+            if errors:
+                print('ERROR:dax manager errors, emailing admin:', errors)
+                manager.email_errors(errors)
+
+        else:
+            print('This instance is currently disabled in REDCap.')
+
+        print('ALL DONE!')
+
+    elif args.command == 'undo':
+        try:
+            enable_stdout()
+            # Undo the processing of the assessor
+            dax.bin.undo_processing(args.assessor)
+        except Exception as err:
+            print('error undo:{}'.format(err))
+
+    elif args.command == 'validate':
+        try:
+            validate.validate(args.file)
+            print('Valid!')
+        except Exception as err:
+            print('Not valid!')
+            print(err)
+
+    elif args.command == 'version':
+        print(dax.__version__)

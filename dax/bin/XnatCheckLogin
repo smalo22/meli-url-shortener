@@ -1,0 +1,78 @@
+#!/Users/smalo/my_lambda_function/venv/bin/python3.9
+# -*- coding: utf-8 -*-
+
+'''
+Set and Check the logins for XNAT.
+
+Created on Jan 24, 2013
+Edited on February 26,2015
+Edited on January 25, 2017
+
+@author: byvernault
+'''
+
+
+import os
+import sys
+
+from dax import DAX_Netrc
+from dax.dax_tools_utils import test_connection_xnat
+from dax.errors import DaxNetrcError
+import dax.xnat_tools_utils as utils
+
+
+__copyright__ = 'Copyright 2013 Vanderbilt University. All Rights Reserved'
+__exe__ = os.path.basename(__file__)
+__author__ = 'byvernault'
+__purpose__ = "Set and Check the logins for XNAT."
+BASH_PROFILE_XNAT = """# Xnat Host for default dax executables:
+{export_cmd}
+"""
+
+
+def check_settings(host):
+    """
+    Method to check the settings for host in xnatnetrc
+
+    :param host: Xnat Host URL
+    :return: None
+    """
+    if not host:
+        # use XNAT_HOST
+        print('No host specified, using XNAT_HOST environment variable.')
+        try:
+            host = os.environ['XNAT_HOST']
+        except KeyError:
+            print('ERROR:host not found, set environment variable XNAT_HOST')
+            sys.exit(1)
+
+    print('Checking login for host={}'.format(host))
+    try:
+        dax_netrc = DAX_Netrc()
+        user, pwd = dax_netrc.get_login(host)
+    except DaxNetrcError:
+        print('ERROR:login not found, set in ~/.netrc')
+        sys.exit(1)
+
+    print('Checking connection:host={}, user={}'.format(host, user))
+    test_connection_xnat(host, user, pwd)
+
+
+def parse_args():
+    """
+    Method to parser arguments following ArgumentParser
+
+    :return: arguments parsed
+    """
+    from argparse import ArgumentParser
+    ap = ArgumentParser(prog=__exe__, description=__purpose__)
+    ap.add_argument('--host', dest='host', default=None, help='Host for XNAT.')
+    return ap.parse_args()
+
+
+if __name__ == '__main__':
+    args = parse_args()
+    utils.print_separators()
+    print('Checking your settings for XNAT')
+    check_settings(args.host)
+    utils.print_separators()

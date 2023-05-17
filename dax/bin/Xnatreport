@@ -1,0 +1,393 @@
+#!/Users/smalo/my_lambda_function/venv/bin/python3.9
+# -*- coding: utf-8 -*-
+
+'''
+Generate a report for a list of project on XNAT
+
+@author: Benjamin Yvernault, Electrical Engineering, Vanderbilt University
+'''
+
+
+from datetime import datetime
+import logging
+import os
+
+from dax import XnatUtils
+from dax.errors import XnatToolsError, XnatToolsUserError
+import dax.xnat_tools_utils as utils
+
+
+__copyright__ = 'Copyright 2013 Vanderbilt University. All Rights Reserved'
+__exe__ = os.path.basename(__file__)
+__author__ = 'byvernault'
+__purpose__ = 'Print a detailed report from XNAT projects.'
+__logger__ = utils.setup_info_logger(__exe__)
+__description__ = """What is the script doing :
+   * Create a report about Xnat projects.
+
+Examples:
+   *Report of a project:
+        Xnatreport -p PID
+   *Report with a specific format:
+        Xnatreport -p PID --format object_type,session_id,session_label,age
+   *print the format available:
+        Xnatreport --printformat
+   *Save report in a csv:
+        Xnatreport -p PID -c report.csv"""
+
+VARIABLES_LIST = {
+    'commun': ['object_type'],
+    'project': ['project_id'],
+    'subject': ['subject_id', 'subject_label', 'handedness', 'gender', 'yob'],
+    'session': ['session_id', 'session_type', 'session_label', 'age',
+                'last_modified', 'last_updated'],
+    'scan': ['scan_id', 'type', 'series_description', 'quality', 'note',
+             'frames'],
+    'assessor': ['assessor_id', 'assessor_label', 'assessor_URI', 'proctype',
+                 'procstatus', 'qcstatus', 'version', 'jobid', 'memused',
+                 'walltimeused', 'jobnode', 'jobstartdate'],
+    'resource': ['resource']}
+QUOTE_FIELDS = ['type', 'series_description', 'quality', 'qcstatus', 'note']
+
+
+def display(row):
+    """
+    Function to display the row for the report
+
+    :param row: list of values to display
+    """
+    if not isinstance(row, list):
+        err = 'variable row is not a list instead %s'
+        raise XnatToolsError(err % type(row))
+    if None in row:
+        err = 'a value is None in row: %s'
+        raise XnatToolsError(err % row)
+    __logger__.info(','.join(row))
+
+
+def is_under_sessions(header):
+    """
+    Function to check that the level of display is under the session.
+
+    :param header: header for report
+    """
+    is_scan = [x for x in VARIABLES_LIST['scan'] if x in header]
+    is_assr = [x for x in VARIABLES_LIST['assessor'] if x in header]
+    return is_scan or is_assr or is_default(header)
+
+
+def is_default(header):
+    """
+    Function to return True if default csv header.
+
+    :param header: header for report
+    """
+    return header == utils.CSV_HEADER[:-1]
+
+
+def quote(value):
+    """
+    Quote the string if needed
+
+    :param value: the string
+    :return: quoted string
+    """
+    if ',' in value:
+        return '"%s"' % value
+    else:
+        return value
+
+
+def report(xnat, projects, rformat=None):
+    """
+    Main Function to report
+
+    :param xnat: pyxnat interface
+    :param projects: list of projects
+    :param rformat: report format for display
+    :return: None
+    """
+    #__logger__.info('Date: %s\n' % (str(datetime.now())))
+    if not rformat:
+        rformat = ','.join(utils.CSV_HEADER[:-1])
+    __logger__.info(rformat)
+
+    for project in projects:
+        header = rformat.split(',')
+        if is_under_sessions(header):
+            report_under_sessions(xnat, project, header, is_default(header))
+        elif [x for x in VARIABLES_LIST['session'] if x in header]:
+            report_sessions(xnat, project, header)
+        elif [x for x in VARIABLES_LIST['subject'] if x in header]:
+            report_subjects(xnat, project, header)
+        else:
+            display(get_row(xnat, {'project_id': project}, header))
+
+
+def report_subjects(xnat, project, header):
+    """
+    Function to display customized report on subjects following the header
+
+    :param xnat: pyxnat interface
+    :param project: project ID on XNAT
+    :param header: header to display
+    :return: None
+    """
+    subjects_list = xnat.get_subjects(project)
+    for subject_dict in subjects_list:
+        display(get_row(xnat, subject_dict, header))
+
+
+def report_sessions(xnat, project, header):
+    """
+    Function to display customized report on sessions following the header
+
+    :param xnat: pyxnat interface
+    :param project: project ID on XNAT
+    :param header: header to display
+    :return: None
+    """
+    sessions_list = xnat.get_sessions(project)
+    for session in sorted(sessions_list, key=lambda k: k['session_label']):
+        display(get_row(xnat, session, header))
+
+
+def report_under_sessions(xnat, project, header, default=False):
+    """
+    Function to display customized report under the sessions following the
+    header
+
+    :param xnat: pyxnat interface
+    :param project: project ID on XNAT
+    :param header: header to display
+    :return: None
+    """
+    objs_list = list()
+    if default:
+        scans_list = xnat.get_project_scans(project)
+        assrs_list = xnat.list_project_assessors(project)
+        objs_list = scans_list + assrs_list
+    elif [x for x in VARIABLES_LIST['scan'] if x in header]:
+        objs_list = xnat.get_project_scans(project)
+    elif [x for x in VARIABLES_LIST['assessor'] if x in header]:
+        objs_list = xnat.list_project_assessors(project)
+
+    if not objs_list:
+        err = 'objs_list is empty. There is an issue with the header: %s'
+        raise XnatToolsError(err % header)
+
+    for obj in sorted(objs_list, key=lambda k: k['subject_label']):
+        display(get_row(xnat, obj, header))
+
+
+def get_row(xnat, obj_dict, header):
+    """
+    Function to generate the row for display report from object dictionary
+
+    :param xnat: pyxnat interface
+    :param obj_dict: dictionary containing information on object from XNAT
+    :param header: header to display
+    :return: return the string for the row associated to obj_dict
+    """
+    row = list()
+    for field in header:
+        is_scan = 'scan_id' in list(obj_dict.keys())
+        _field = get_field(field, is_scan)
+        if _field == 'object_type':
+            row.append(get_object_type(obj_dict))
+        elif _field == 'resource':
+            row.append(get_resources(xnat, obj_dict))
+        elif _field in QUOTE_FIELDS:
+            row.append(quote(obj_dict.get(_field)))
+        else:
+            row.append(obj_dict.get(_field))
+    return row
+
+
+def get_field(field, is_scan):
+    """
+    Function to link the field name in header to obj_dict key.
+
+    :param field: header field
+    :param is_scan: is the field from scan object
+    :return: string describing the key in obj_dict
+    """
+    _field = field
+    if _field in ['as_label', 'as_type', 'as_description', 'as_quality']:
+        if _field == 'as_label':
+            _field = 'scan_id' if is_scan else 'assessor_label'
+        elif _field == 'as_type':
+            _field = 'type' if is_scan else 'proctype'
+        elif _field == 'as_description':
+            _field = 'series_description' if is_scan else 'procstatus'
+        elif _field == 'as_quality':
+            _field = 'quality' if is_scan else 'qcstatus'
+
+    return _field
+
+
+def get_object_type(obj_dict):
+    """
+    Function to return the object type.
+
+    :param obj_dict: dictionary containing information on object from XNAT
+    :return: string describing the object type
+    """
+    _okeys = list(obj_dict.keys())
+    if 'scan_id' in _okeys:
+        return 'scan'
+    elif 'assessor_label' in _okeys:
+        return 'assessor'
+    elif 'session_label' in _okeys:
+        return 'session'
+    elif 'subject_label' in _okeys:
+        return 'subject'
+    else:
+        return 'project'
+
+
+def get_resources(xnat, obj_dict):
+    """
+    Function to return the string displaying the resources for the object.
+
+    :param xnat: pyxnat interface
+    :param obj_dict: dictionary containing information on object from XNAT
+    :return: string describing the resources
+    """
+    _res = ''
+    _okeys = list(obj_dict.keys())
+    if 'scan_id' in _okeys or 'assessor_label' in _okeys:
+        _res = '/'.join(obj_dict['resources'])
+    elif 'session_label' in _okeys:
+        res_list = xnat.get_session_resources(
+            obj_dict['project_id'], obj_dict['subject_label'],
+            obj_dict['session_label'])
+        _res = '/'.join([r['label'] for r in res_list])
+    elif 'subject_label' in _okeys:
+        res_list = xnat.get_subject_resources(obj_dict['project_id'],
+                                              obj_dict['subject_label'])
+        _res = '/'.join([r['label'] for r in res_list])
+    elif 'project_id' in _okeys:
+        res_list = xnat.get_project_resources(obj_dict['project_id'])
+        _res = '/'.join([r['label'] for r in res_list])
+
+    return str(_res)
+
+
+def print_format():
+    """
+    Function to print the format for variables.
+
+    :return: None
+    """
+    __logger__.info('INFO: Printing the variables available: ')
+    order_header = utils.ORDER
+    order_header.append('resource')
+    for key in order_header:
+        __logger__.info('%s variables:' % key)
+        for name in VARIABLES_LIST[key]:
+            __logger__.info(' * %*s ' % (-30, name))
+
+
+def run_xnat_report(args):
+    """
+    Main function for xnat report.
+
+    :param args: arguments parse by argparse
+    """
+    _format = args.format
+    if _format and _format[-1] == ',':
+        _format = _format[:-1]
+
+    var_list = [_i for _list in list(VARIABLES_LIST.values()) for _i in _list]
+    if _format and [x for x in _format.split(',') if x not in var_list]:
+        err = '--format has some variables that does not exist on XNAT. \
+Please display the variables available on XNAT by using --printformat.'
+        raise XnatToolsUserError(__exe__, err)
+
+    if not args.print_format:
+        if not args.projects:
+            err = 'argument -p/--project is required.'
+            raise XnatToolsUserError(__exe__, err)
+
+        if args.csv_file:
+            folder = os.path.dirname(os.path.abspath(args.csv_file))
+            if not os.path.exists(folder):
+                err = 'argument -c/--csvfile set with a folder that does not \
+exist to create the file: %s not found.' % folder
+                raise XnatToolsUserError(__exe__, err)
+
+    if args.csv_file:
+        handler = logging.FileHandler(args.csv_file, 'w')
+        __logger__.addHandler(handler)
+
+    utils.print_separators()
+
+    if args.print_format:
+        print_format()
+
+    if _format and _format == 'object_type':
+        utils.print_separators()
+        __logger__.info('object_type')
+        __logger__.info('project')
+        __logger__.info('subject')
+        __logger__.info('session')
+        __logger__.info('scan')
+        __logger__.info('assessor')
+    elif args.projects:
+        utils.print_separators()
+        projects = args.projects.split(',')
+
+        if _format and _format == 'resource':
+            print('WARNING: you gave only the resource to --format \
+option. Adding object_type and project_id.')
+            _format = 'object_type,project_id,resource'
+
+        if args.host:
+            host = args.host
+        else:
+            host = os.environ['XNAT_HOST']
+        user = args.username
+        with XnatUtils.get_interface(host=host, user=user) as xnat:
+            print('INFO: connection to xnat <%s>:' % (host))
+            print("Report for the following project(s):")
+            print('------------------------------------')
+            for proj in projects:
+                # check if the project exists:
+                proj_obj = xnat.select('/project/{}'.format(proj))
+                if not proj_obj.exists():
+                    err = 'Project "%s" given to -p/--project not found on \
+XNAT.'
+                    raise XnatToolsUserError(__exe__, err % proj)
+                print('  - %s' % proj)
+            print('------------------------------------')
+            print('WARNING: extracting information from XNAT for a full \
+project might take some time. Please be patient.\n')
+            # Writing report
+            report(xnat, projects, _format)
+
+    utils.print_end(__exe__)
+
+
+def add_to_parser(parser):
+    """
+    Method to add arguments to default parser for xnat_tools in utils.
+
+    :param parser: parser object
+    :return: parser object with new arguments
+    """
+    parser.add_argument("-p", "--project", dest="projects", default=None,
+                        help="List of project ID on Xnat separate by a coma")
+    parser.add_argument("-c", "--csvfile", dest="csv_file", default=None,
+                        help="csv fullpath where to save the report.")
+    _h = "Header for the csv. format: variables name separated by comma."
+    parser.add_argument("--format", dest="format", default=None, help=_h)
+    _h = "Print available variables names for the option --format."
+    parser.add_argument("--printformat", dest="print_format", help=_h,
+                        action="store_true")
+    return parser
+
+
+if __name__ == '__main__':
+    utils.run_tool(__exe__, __description__, add_to_parser, __purpose__,
+                   run_xnat_report)
