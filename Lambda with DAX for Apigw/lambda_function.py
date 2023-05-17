@@ -3,7 +3,7 @@ import json
 import amazondax
 
 dynamodb = boto3.resource('dynamodb')
-dax = amazondax.AmazonDaxClient(resource_arn='arn:aws:dax:us-east-1:707810240585:cache/meli', endpoints=['daxs://meli.bsag9w.dax-clusters.us-east-1.amazonaws.com'])
+dax = amazondax.AmazonDaxClient.resource(endpoint_url='daxs://meli.bsag9w.dax-clusters.us-east-1.amazonaws.com')
 table_name = 'meli-url-shortener'
 
 def lambda_handler(event, context):
@@ -13,9 +13,9 @@ def lambda_handler(event, context):
     #return print(event)
     
     # Retrieve the long URL from DynamoDB
-    table = dynamodb.Table(table_name)
-    #response = table.get_item(Key={'shortid': short_id})
-    response = dax.table(table_name).get_item(Key={'shortid': short_id})
+    table = dax.Table(table_name)
+    #table = dynamodb.Table(table_name)
+    response = table.get_item(Key={'shortid': short_id})
     
     # Check if the item exists in the table
     if 'Item' in response:
