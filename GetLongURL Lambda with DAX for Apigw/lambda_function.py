@@ -3,7 +3,7 @@ import json
 import amazondax
 
 dynamodb = boto3.resource('dynamodb')
-dax = amazondax.AmazonDaxClient.resource(endpoint_url='daxs://meli.bsag9w.dax-clusters.us-east-1.amazonaws.com')
+dax = amazondax.AmazonDaxClient.resource(endpoint_url='daxs://melidaxv2.bsag9w.dax-clusters.us-east-1.amazonaws.com')
 table_name = 'meli-url-shortener'
 
 def lambda_handler(event, context):
