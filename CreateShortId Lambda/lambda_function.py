@@ -22,7 +22,7 @@ def lambda_handler(event, context):
     if response['Items']:
         # If the long URL already exists, return the existing short ID
         short_id = response['Items'][0]['shortid']
-        message = f"La URL que larga que ha pegado ya existe en Nuestra DB. Esta es su URL corta: {base_url}{short_id}"
+        message = f"La URL larga que ha pegado ya existe en Nuestra DB. Esta es su URL corta: {base_url}{short_id}"
     else:
         while True:
             # Generate a random short ID
